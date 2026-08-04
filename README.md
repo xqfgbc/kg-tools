@@ -67,17 +67,22 @@ git clone https://github.com/xqfgbc/kg-tools.git ~/Documents/accenture/AI应用/
 # 2. 克隆后端依赖（kg-update / kg-qa 需要）
 git clone https://github.com/xqfgbc/my-kg-pipeline.git ~/Documents/accenture/AI应用/AI-KG
 
-# 3. 建立 Claude Code skill 符号链接
+# 3. 配置本地路径（addToObsidian 需要）
+cp ~/Documents/accenture/AI应用/kg-tools/addToObsidian/config.example.sh \
+   ~/Documents/accenture/AI应用/kg-tools/addToObsidian/config.sh
+# 编辑 config.sh，设置你的 Obsidian vault 路径
+
+# 4. 建立 Claude Code skill 符号链接
 ln -sf ~/Documents/accenture/AI应用/kg-tools/ppt-extract ~/.claude/skills/ppt-extract
 ln -sf ~/Documents/accenture/AI应用/kg-tools/web-pdf-extract ~/.claude/skills/web-pdf-extract
 ln -sf ~/Documents/accenture/AI应用/kg-tools/addToObsidian ~/.claude/skills/addToObsidian
 ln -sf ~/Documents/accenture/AI应用/kg-tools/kg-update ~/.claude/skills/kg-update
 ln -sf ~/Documents/accenture/AI应用/kg-tools/kg-qa ~/.claude/skills/kg-qa
 
-# 4. 安装 ppt-extract 环境依赖
+# 5. 安装 ppt-extract 环境依赖
 bash ~/Documents/accenture/AI应用/kg-tools/ppt-extract/setup.sh
 
-# 5. 安装 AI-KG 依赖
+# 6. 安装 AI-KG 依赖
 pip install -r ~/Documents/accenture/AI应用/AI-KG/requirements.txt
 ```
 
