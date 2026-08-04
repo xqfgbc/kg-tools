@@ -4,11 +4,22 @@
 
 将 **ppt-extract** 或 **web-pdf-extract** 技能产出的结构化 Markdown 文档及资产图片，融入已有的 Obsidian vault，使其具备 YAML 标签、双向链接、图谱视图等 Obsidian 原生能力。
 
-## 默认 Vault 路径
+## Vault 路径配置
 
+Vault 路径通过 `config.sh` 配置（本地文件，不提交 Git）：
+
+```bash
+# 首次使用：复制配置模板
+cp config.example.sh config.sh
+# 编辑 config.sh，设置你的 vault 路径
 ```
-/Users/bo.gong/Documents/accenture/obsidian/AI/
+
+```bash
+# config.sh 内容
+VAULT_PATH="/path/to/your/obsidian/vault"
 ```
+
+Skill 执行时通过 `source config.sh` 加载 `$VAULT_PATH` 变量。
 
 > 该路径与 `kg-qa`、`kg-update` 两个 skill 共用同一个 vault，形成「PPT提取 → Obsidian融入 → 知识图谱更新 → 问答检索」的完整工具链。
 
@@ -47,7 +58,7 @@ echo "📋 输入类型: $INPUT_TYPE"
 
 | 条件 | 检查方式 |
 |------|----------|
-| **Obsidian Vault 已存在** | 默认路径 `/Users/bo.gong/Documents/accenture/obsidian/AI/` 存在且包含 `.md` 文件 |
+| **Obsidian Vault 已存在** | `config.sh` 中配置的 `$VAULT_PATH` 存在且包含 `.md` 文件 |
 | **内容已提取完成** | 存在 ppt-extract 或 web-pdf-extract 输出目录，包含 `<name>.md` + `asset/*` |
 | **Vault 中有可参考的现有文档** | 查看现有 `.md` 文件的 frontmatter 格式和标签风格 |
 | **资产图片可访问** | `asset/` 目录中有对应图片文件 |
@@ -60,10 +71,10 @@ echo "📋 输入类型: $INPUT_TYPE"
 
 ```bash
 # 查看 vault 目录结构
-ls "{vault_path}/"
+ls ""$VAULT_PATH"/"
 
 # 查看现有文档的 frontmatter 格式
-head -30 "{vault_path}"/*/*.md
+head -30 ""$VAULT_PATH""/*/*.md
 ```
 
 从现有文档中提取：
@@ -95,7 +106,7 @@ head -30 "{vault_path}"/*/*.md
 
 ```bash
 FOLDER_NAME="{生成的标题}"
-TARGET_DIR="{vault_path}/${FOLDER_NAME}"
+TARGET_DIR=""$VAULT_PATH"/${FOLDER_NAME}"
 mkdir -p "${TARGET_DIR}/asset"
 ```
 
