@@ -10,6 +10,22 @@ tags: [knowledge-graph, qa, rag,运维, aiops]
 
 当用户提出 AI/IT 运维领域的问题时，从知识图谱中检索相关知识，结合原文内容给出带来源追溯的回答。
 
+## 项目路径配置
+
+AI-KG 项目路径和 Vault 路径通过 `.env` 文件配置（本地文件，不提交 Git）：
+
+```bash
+# 首次使用：复制配置模板
+cp .env.example .env
+# 编辑 .env，设置你的路径
+```
+
+```bash
+# .env 内容
+KG_PROJECT_DIR=/path/to/AI-KG
+VAULT_PATH=/path/to/obsidian/vault
+```
+
 ## 工作流程
 
 ### Step 1: 检索
@@ -17,7 +33,8 @@ tags: [knowledge-graph, qa, rag,运维, aiops]
 运行检索脚本：
 
 ```bash
-cd /Users/bo.gong/Documents/accenture/AI应用/AI-KG && python kg-pipeline/retrieval.py "<用户问题>"
+source "{skill_dir}/.env"
+cd "$KG_PROJECT_DIR" && python kg-pipeline/retrieval.py "<用户问题>"
 ```
 
 返回的 JSON 包含：
@@ -63,7 +80,7 @@ cd /Users/bo.gong/Documents/accenture/AI应用/AI-KG && python kg-pipeline/retri
 如果 `source_passages` 中的摘要不够详细，可以直接读取对应 .md 文件中具体幻灯片的完整内容：
 
 ```bash
-grep -A 50 "^## Slide N" "/Users/bo.gong/Documents/accenture/obsidian/AI/<文档路径>"
+grep -A 50 "^## Slide N" "$VAULT_PATH/<文档路径>"
 ```
 
 ## 知识库范围

@@ -13,15 +13,18 @@ kg-tools/
 │   ├── extract_pptx.py        # PPTX 结构化提取
 │   ├── extract_pdf.py         # PDF 结构化提取
 │   ├── setup.sh               # 环境安装脚本
-│   └── config.example.sh      # 配置模板（config.sh 不提交）
+│   └── config.example.sh      # 配置模板（config.sh 不提交，本地使用）
 ├── web-pdf-extract/           ← 网页 PDF 转纯净 Markdown
 │   └── SKILL.md
 ├── addToObsidian/             ← 提取内容融入 Obsidian Vault
-│   └── skill.md
+│   ├── skill.md
+│   └── .env.example           # 配置模板（.env 不提交）
 ├── kg-update/                 ← 知识图谱增量更新
-│   └── SKILL.md
+│   ├── SKILL.md
+│   └── .env.example
 └── kg-qa/                     ← 知识图谱问答检索
-    └── SKILL.md
+    ├── SKILL.md
+    └── .env.example
 ```
 
 ## 工具概览
@@ -67,10 +70,14 @@ git clone https://github.com/xqfgbc/kg-tools.git ~/Documents/accenture/AI应用/
 # 2. 克隆后端依赖（kg-update / kg-qa 需要）
 git clone https://github.com/xqfgbc/my-kg-pipeline.git ~/Documents/accenture/AI应用/AI-KG
 
-# 3. 配置本地路径（addToObsidian 需要）
-cp ~/Documents/accenture/AI应用/kg-tools/addToObsidian/config.example.sh \
-   ~/Documents/accenture/AI应用/kg-tools/addToObsidian/config.sh
-# 编辑 config.sh，设置你的 Obsidian vault 路径
+# 3. 配置本地路径（各 skill 通过 .env 加载，不提交 Git）
+cp ~/Documents/accenture/AI应用/kg-tools/addToObsidian/.env.example \
+   ~/Documents/accenture/AI应用/kg-tools/addToObsidian/.env
+cp ~/Documents/accenture/AI应用/kg-tools/kg-update/.env.example \
+   ~/Documents/accenture/AI应用/kg-tools/kg-update/.env
+cp ~/Documents/accenture/AI应用/kg-tools/kg-qa/.env.example \
+   ~/Documents/accenture/AI应用/kg-tools/kg-qa/.env
+# 编辑各 .env 文件，设置你的本地路径
 
 # 4. 建立 Claude Code skill 符号链接
 ln -sf ~/Documents/accenture/AI应用/kg-tools/ppt-extract ~/.claude/skills/ppt-extract

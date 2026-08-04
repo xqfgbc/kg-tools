@@ -10,18 +10,30 @@ tags: [knowledge-graph, sync, pipeline,运维]
 
 检查 Obsidian 知识库 vault 中的 .md 文件变更，发现新增或修改后增量更新知识图谱。
 
-## 项目路径
+## 项目路径配置
 
+AI-KG 项目路径通过 `.env` 文件配置（本地文件，不提交 Git）：
+
+```bash
+# 首次使用：复制配置模板
+cp .env.example .env
+# 编辑 .env，设置你的 AI-KG 项目路径
 ```
-PROJECT_DIR=/Users/bo.gong/Documents/accenture/AI应用/AI-KG
+
+```bash
+# .env 内容
+KG_PROJECT_DIR=/path/to/AI-KG
 ```
+
+Skill 执行时通过 `source .env` 加载 `$KG_PROJECT_DIR` 变量。
 
 ## 工作流程
 
 ### Step 1: 检查变更
 
 ```bash
-python3 /Users/bo.gong/Documents/accenture/AI应用/AI-KG/check_changes.py
+source "{skill_dir}/.env"
+python3 "$KG_PROJECT_DIR/check_changes.py"
 ```
 
 - 退出码 0 = 无变更，流程结束
@@ -30,7 +42,7 @@ python3 /Users/bo.gong/Documents/accenture/AI应用/AI-KG/check_changes.py
 ### Step 2: 更新图谱
 
 ```bash
-python3 /Users/bo.gong/Documents/accenture/AI应用/AI-KG/kg-pipeline/pipeline.py
+python3 "$KG_PROJECT_DIR/kg-pipeline/pipeline.py"
 ```
 
 管道会：
@@ -49,7 +61,7 @@ python3 /Users/bo.gong/Documents/accenture/AI应用/AI-KG/kg-pipeline/pipeline.p
 如果之前运行过 dashboard，同步更新可视化数据：
 
 ```bash
-python3 /Users/bo.gong/Documents/accenture/AI应用/AI-KG/convert_for_dashboard.py
+python3 "$KG_PROJECT_DIR/convert_for_dashboard.py"
 ```
 
 ## 注意事项
