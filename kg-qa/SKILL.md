@@ -12,7 +12,7 @@ tags: [knowledge-graph, qa, rag,运维, aiops]
 
 ## 项目路径配置
 
-AI-KG 项目路径和 Vault 路径通过 `.env` 文件配置（本地文件，不提交 Git）：
+AI-KG 项目路径、Vault 路径和 Python 解释器通过 `.env` 文件配置（本地文件，不提交 Git）：
 
 ```bash
 # 首次使用：复制配置模板
@@ -24,17 +24,42 @@ cp .env.example .env
 # .env 内容
 KG_PROJECT_DIR=/path/to/AI-KG
 VAULT_PATH=/path/to/obsidian/vault
+KG_PYTHON=/path/to/venv/bin/python3
 ```
+
+> **⚠️ 必须用 `$KG_PYTHON`，不要用裸 `python3`。**
+> 检索依赖 `jieba`、`scikit-learn`、`PyYAML`。系统自带的 `/usr/bin/python3` 一个都没有。
+> （旧版本文档里写的 conda 路径 `/opt/miniconda3/bin/python` 在本机已不存在，不要再引用。）
+> 本机可用环境：`/Users/bo.gong/.venvs/ai-kg/bin/python3`。
 
 ## 工作流程
 
-### Step 1: 检索
+### Step 0: 图谱新鲜度自检
 
-运行检索脚本：
+先确认图谱覆盖了 vault 里的全部文档再检索，否则答案会凭空缺失某些文档：
 
 ```bash
 source "{skill_dir}/.env"
-cd "$KG_PROJECT_DIR" && python kg-pipeline/retrieval.py "<用户问题>"
+"$KG_PYTHON" - <<'PY'
+import json, os
+kg, vault = os.environ["KG_PROJECT_DIR"], os.environ["VAULT_PATH"]
+g = json.load(open(os.path.join(kg, "kg-pipeline-data/graph.json")))
+docs = {n["id"] for n in g["nodes"] if n["type"] == "document"}
+md = [f for r, _, fs in os.walk(vault) for f in fs
+      if f.endswith(".md") and ".obsidian" not in r and "/asset/" not in r]
+print(f"图谱文档数: {len(docs)}   vault 文档数: {len(md)}")
+if len(docs) != len(md):
+    print("⚠️  不一致 —— 图谱可能被截断，请先运行 /kg-update 再提问")
+PY
+```
+
+不一致时**先跑 `/kg-update`**，不要基于残缺的图谱作答。
+
+### Step 1: 检索
+
+```bash
+source "{skill_dir}/.env"
+cd "$KG_PROJECT_DIR" && "$KG_PYTHON" kg-pipeline/retrieval.py "<用户问题>"
 ```
 
 返回的 JSON 包含：
@@ -42,6 +67,11 @@ cd "$KG_PROJECT_DIR" && python kg-pipeline/retrieval.py "<用户问题>"
 - `related_concepts` — 共现关联最强的概念（按权重排序）
 - `source_passages` — 原文幻灯片摘要，含文档名、幻灯片编号、标题、摘要
 - `fulltext_matches` — 全文搜索到的补充段落
+
+> **检索机制说明**：实体匹配用的是 TF-IDF（字符 2–4 gram）+ 余弦相似度，**不是语义嵌入**。
+> 它衡量字符重叠而非语义相近，所以问法与实体名用词不重叠时可能漏召回。
+> 检索结果为空或明显偏少时，换用**实体表里实际出现的词**（英文术语、缩写）重试，
+> 或先在图谱中查一下相关实体名再问。
 
 ### Step 2: 组织上下文
 
@@ -85,16 +115,18 @@ grep -A 50 "^## Slide N" "$VAULT_PATH/<文档路径>"
 
 ## 知识库范围
 
-当前知识库包含以下文档（来自 Obsidian vault `obsidian/AI/`）：
+**不要硬编码文档清单** —— vault 内容会持续增长，写死的列表很快就会过期。
+需要说明覆盖范围时，用 Step 0 的自检命令或直接列目录取得实际文档：
 
-- **Enterprise Observability & AIOps** — 企业可观测性与 AIOps 战略蓝图（33页）
-- **Reinventing IT Operations** — IT 运维重塑（43页）
-
-主题覆盖：AIOps、Observability、AgenticAI、Dynatrace、ServiceNow、自主化运维、MTTR、事件管理等。
+```bash
+ls "$VAULT_PATH"
+```
 
 ## 注意事项
 
 - 检索脚本路径是绝对路径，确保在任意目录下都能执行
-- **使用 `python` 而非 `python3`**：系统自带 `/usr/bin/python3` 缺少 jieba 等依赖，必须用 conda 环境中的 `python`（`/opt/miniconda3/bin/python`）
-- 如果检索结果为空，尝试用英文关键词或同义词重新检索
-- 图谱中实体间 cooccurs_with 权重仅反映标签共现频率，不代表因果关系
+- **必须用 `$KG_PYTHON`**（见上方警告），不要用裸 `python3` 或文档历史版本里的 conda 路径
+- 如果检索结果为空，尝试用英文关键词、缩写或实体表中实际出现的同义词重新检索
+- 图谱中实体间 `cooccurs_with` 权重仅反映标签共现频率，不代表因果关系
+- 只有一个知识图谱（`kg-pipeline-data/graph.json`）。管道只扫 vault 一个根目录，
+  文档来自哪个源文件夹不影响它进入哪张图 —— 只要是已入库的文档，就在同一张图里。

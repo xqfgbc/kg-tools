@@ -1,3 +1,14 @@
 .DS_Store
 .env
+
+# 本机配置（含本地路径，不提交）
 ppt-extract/config.sh
+
+# 运行时状态：kb-ingest 的进度清单。每次入库都会改写，且只对本机有意义，
+# 不是源码 —— 入库进版本管理只会让工作区一直脏着。
+kb-ingest/.local/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo

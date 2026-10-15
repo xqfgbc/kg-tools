@@ -58,8 +58,13 @@ with pdfplumber.open(pdf_path) as pdf:
                         fontname = fontname.split('+', 1)[1]
                     font_info = f" | font={fontname} size={fontsize:.0f}pt"
 
+                # ⚠️ 不要截断文本。
+                # 这里原来写的是 text[:150]，会把每一行静默砍在 150 字符——
+                # 一份 37 页的 deck 里有 41 行正好 150 字符，也就是被砍在句中，
+                # 正文内容直接丢失，且输出看起来完全正常，极难发现。
+                # 原始输出是给下游撰写用的数据源，完整性优先于日志紧凑。
                 print(f"    L{li+1}: pos=({x_in:.2f},{y_in:.2f}) size=({w_in:.2f}x{h_in:.2f}) "
-                      f"\"{text[:150]}\"{font_info}")
+                      f"\"{text}\"{font_info}")
 
         # ---- 2. 表格提取 ----
         # extract_tables() 返回二维字符串数组，自动检测表格结构
@@ -71,12 +76,11 @@ with pdfplumber.open(pdf_path) as pdf:
                 ncols = len(table[0]) if table and table[0] else 0
                 print(f"  Table {ti+1}: {nrows} rows x {ncols} cols")
                 for ri, row in enumerate(table):
-                    # 限制每行输出长度，避免日志过大
+                    # 同样不截断单元格：截断会丢内容，而日志大小不是问题
                     cells = []
                     for c in row:
                         if c:
-                            cleaned = c.strip().replace('\n', ' | ')
-                            cells.append(cleaned[:200])
+                            cells.append(c.strip().replace('\n', ' | '))
                         else:
                             cells.append('')
                     print(f"    ROW {ri}: {' || '.join(cells)}")

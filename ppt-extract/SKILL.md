@@ -93,6 +93,51 @@ echo "📋 输入类型: $INPUT_TYPE"
 
 > **PDF 输入**：跳过 LibreOffice 转换步骤（第二步-图片通道中跳过 2a），直接从 2b（PDF→PNG）开始。结构化通道使用 pdfplumber 替代 python-pptx。
 
+### 批量模式：处理整个文件夹
+
+当输入是**文件夹**而不是单个文件时，**不要手写循环——直接调脚本**。
+
+```bash
+# 提取（PPTX→PDF→PNG→结构化提取）
+bash "{skill_dir}/batch_extract.sh" "{输入文件夹}" [更多目录...]
+
+# OCR（辅助验证，可后补、可与撰写并行）
+bash "{skill_dir}/batch_ocr.sh" "{输入文件夹}" [更多目录...]
+```
+
+两个脚本都幂等：已完成的产物会跳过，中断后重跑即可续上。
+
+**为什么必须是脚本而不是 SKILL 里的内联片段**：这几步踩过两个会**静默出错**的坑，
+都是照抄片段时才会发生的——
+
+| 坑 | 症状 | 脚本里的处理 |
+|---|---|---|
+| `printf -v new "slide_%02d.png" "$n"` 把前导 0 当八进制 | `08`/`09` 非法 → 都输出 `slide_00.png` → 第 8、9 页图片被覆盖丢失，**脚本不报错**（zsh 里反而正常，极难发现） | 用 `"$((10#$n))"` 强制十进制，并在末尾自检编号连续性 |
+| 手抄源文件名 | 文件名含 U+00A0 不换行空格时匹配不上，**整份文档被静默跳过** | 待处理清单从 `find` **枚举**，绝不手抄 |
+
+**Step: 撰写**
+
+提取完不等于完成——还差最后一步：按**第六步**把 `extraction_raw.txt` 撰写成
+`{name}.md`。该步骤的完整规范（铁律、单页模板、文档骨架、格式约定、
+图形式页面的阅读要求、输出质量标准）见：
+
+```
+{skill_dir}/AUTHORING_BRIEF.md
+```
+
+**Step: 批量质量检查**
+
+```bash
+for dir in "{输入文件夹}"/*/; do
+  name="$(basename "$dir")"
+  md="$dir$name.md"
+  [ -f "$md" ] || { echo "❌ 缺产物: $name"; continue; }
+  echo "✅ $name — slides=$(grep -c '^## Slide' "$md") imgs=$(ls "$dir/asset" 2>/dev/null | wc -l | tr -d ' ') md=$(grep -c '!\[Slide' "$md")"
+done
+```
+
+`slides`、`imgs`、`md`（图片引用数）三者应**相等**且等于源 PPT 页数。
+
 ### 第一步：准备输出目录
 
 > **命名规则**：输出主文件夹使用文件名（去掉扩展名）命名，放在文件所在目录下。
@@ -149,6 +194,29 @@ pdftoppm -png -r 150 "{pdf_path}" "{output_dir}/asset/slide"
 
 > **注意**: pdftoppm 输出的文件名为 `slide-1.png`, `slide-2.png`...，需重命名为 `slide_01.png` 统一格式。
 
+```bash
+# 2c. 重命名为 slide_NN.png
+# ⚠️ 必须用 10#$n 强制十进制，否则会静默丢图。
+# pdftoppm 按总页数补零（>9 页时输出 slide-08.png）。bash 的 printf %d 把前导 0 当八进制，
+# "08"/"09" 是非法八进制 → 报 "invalid number" 并按 0 处理 → 两次都输出 slide_00.png，
+# 第二个把第一个覆盖掉。结果：第 8、9 页图片凭空消失，而 md 里的
+# ![Slide 8](asset/slide_08.png) 指向不存在的文件，且脚本不会报错。
+# （zsh 的 printf 不这么做 —— 同一段代码在 zsh 里跑反而正常，极易漏过。）
+( cd "{output_dir}/asset" && for p in slide-*.png; do
+    [ -e "$p" ] || continue
+    n="${p#slide-}"; n="${n%.png}"
+    printf -v new "slide_%02d.png" "$((10#$n))"
+    [ "$p" = "$new" ] || mv "$p" "$new"
+  done )
+```
+
+**改完必须核对**：图片编号应连续无缺口，且数量等于页数。
+
+```bash
+ls "{output_dir}/asset"/slide_*.png | wc -l          # 应等于 PPT 页数
+ls "{output_dir}/asset" | grep -E '^slide-|slide_0*0\.png'   # 应无输出
+```
+
 ### 第三步：结构化通道
 
 > **⚠️ 关键分支**：根据输入类型选择不同的提取脚本。PPTX 用 python-pptx，PDF 用 pdfplumber。
@@ -157,9 +225,14 @@ pdftoppm -png -r 150 "{pdf_path}" "{output_dir}/asset/slide"
 
 > **⚠️ 关键：直接使用 skill 目录下的 `extract_pptx.py` 脚本，不要手写简化版。该脚本已内置 GROUP 递归，避免遗漏嵌套内容。**
 
+> **⚠️ Python 环境**：必须使用 `config.sh` 中配置的 `PDFPLUMBER_PYTHON`（该环境同时装有 python-pptx），不要用裸 `python3`——默认 `python3` 指向的可能是未安装 python-pptx 的环境。
+
 ```bash
+# 加载配置获取解释器路径
+source "{skill_dir}/config.sh"
+
 # 使用 skill 自带的 extract_pptx.py 脚本
-python3 "{skill_dir}/extract_pptx.py" "{pptx_path}" > {output_dir}/extraction_raw.txt 2>&1
+"$PDFPLUMBER_PYTHON" "{skill_dir}/extract_pptx.py" "{pptx_path}" > {output_dir}/extraction_raw.txt 2>&1
 ```
 
 **关键提取维度**：
@@ -265,6 +338,13 @@ tesseract "{output_dir}/asset/slide_{i:02d}.png" \
 - **[PDF+OCR]** OCR 图片验证文本 → 交叉参考
 
 ### 第六步：编写结构化 Markdown
+
+> **本步的完整规范已固化在 `{skill_dir}/AUTHORING_BRIEF.md`**（铁律、单页模板、
+> 文档骨架、格式约定、图形式页面的阅读要求、输出质量标准）。
+> 下面的 6a–6d 是同一套约定的展开说明，二者应保持一致。
+>
+> 这一步是**格式转换 + 忠实翻译**，不是总结提炼——这是最容易做错的地方，
+> 动手前先读 brief 里的「铁律」一节。
 
 #### 6a. 生成每页幻灯片的描述与标签
 
@@ -424,10 +504,24 @@ tesseract "{output_dir}/asset/slide_{i:02d}.png" \
 | **对内容进行提炼改写** | 将 PPT 原文用自己的话重新表述，丢失原始表达 | 结构化内容区域严格使用 PPT 原文，仅做格式转换（文本→表格/列表），不做内容改写 |
 | **复杂图简单化** | 用文字段落描述复杂关系 | 强制转换为表格或多级列表 |
 | **LibreOffice 路径问题** | soffice 命令找不到 | macOS 上需使用完整路径或从 DMG 直接运行 |
-| **[PDF] 用错 Python 环境** | `ModuleNotFoundError: No module named 'pdfplumber'` | 检查 `config.sh` 中的 `PDFPLUMBER_PYTHON` 配置，确保该 Python 已安装 pdfplumber |
+| **[PPTX/PDF] 用错 Python 环境** | `ModuleNotFoundError: No module named 'pdfplumber'` 或 `No module named 'pptx'` | 检查 `config.sh` 中的 `PDFPLUMBER_PYTHON` 配置，确保该 Python 已装齐 pdfplumber + python-pptx；不要用裸 `python3` |
+| **config.sh 缺失** | `source: no such file or directory: .../config.sh` | 首次使用需先运行 `bash {skill_dir}/setup.sh` 生成 config.sh；若本机 Python 无 pip，改用 `uv pip install --python <解释器> pdfplumber` 后手工创建 config.sh |
 | **[PDF] 表格漏检** | pdfplumber 表格检测不完整（复杂嵌套表格、无边框表格） | 对照 OCR 输出和 PNG 图片人工验证，用坐标+字体信息手动重建表格 |
 | **[PDF] 架构图乱码** | 密集图表区域 pdfplumber 文本行列交错、不可读 | 降级依赖 OCR 通道，以 PNG 图片为最终参考 |
 | **[PDF] 误判为非PPT文件** | 将扫描版 PDF 或常规文档 PDF 当做 PPT 处理 | 使用前确认 PDF 来源：页数多（10+）、幻灯片风格布局、无明显扫描噪点 |
+| **批量模式喂进 Office 临时文件** | LibreOffice/pdfplumber 对 `~$xxx.pptx` 报错或产出空结果 | 用 `find ... ! -name '~$*'` 过滤 |
+| **批量重跑把已完成的工作覆盖掉** | 重复消耗大量时间重做已完成的文档 | 开工前用 Step 2 的 mtime 判定跳过；确认要重做时才设 `FORCE=1` |
+| **文件名含空格导致循环出错** | 变量被拆成多个词 | 所有变量展开都加双引号：`"$f"`、`"$(dirname "$f")"` |
+| **用 `mapfile` / 数组** | macOS 自带 `/bin/bash` 是 3.2，不支持 `mapfile` | 用 `while IFS= read -r f; do ... done < "$LIST"` 的写法（SKILL 中的片段已按此编写） |
+| **PNG 重命名静默丢图** | `printf: 08: invalid number`，第 8、9 页图片消失、多出 `slide_00.png`，但脚本不报错 | 用 `printf -v new "slide_%02d.png" "$((10#$n))"` 强制十进制（见 2c）；改完必须核对编号连续、总数等于页数 |
+| **文件名含不换行空格 U+00A0** | 手写 `"SaaS _PS"`（普通空格）匹配不到实际的 `SaaS\xa0_PS.pptx`，整份文档被静默跳过 | 待处理清单从**文件系统枚举**，不要手抄文件名；用 `python -c "print(repr(name))"` 确认异常字符 |
+| **两个批量任务同时跑** | 各自启动 LibreOffice 写同一输出目录，产物互相覆盖；日志里看不出异常 | `batch_extract.sh` 已加载全局锁（`/tmp/ppt-extract-batch.lock`），第二个实例会被拒绝 |
+| **中断留下半截 PDF 被当成「已完成」** | 只判断 `[ -f ...pdf ]`，于是下次运行跳过转换，pdftoppm 直接失败或产出残缺 | 用 `pdfinfo` 取页数校验 PDF 有效性；页数为空则重新转换；末尾再断言 PNG 数 == PDF 页数 |
+| **`$var` 紧跟中文导致 unbound variable** | `echo "有 $have，"` 中的全角逗号被 bash 当作变量名的一部分 → `have，: unbound variable` | 变量后紧跟非 ASCII 字符时必须用 `${var}` 界定 |
+| **仅凭 `ls \| wc -l` 判断图片齐全** | 重命名 bug 丢页后总数仍可能是「对的」（多一个 `slide_00.png` 补上了缺口） | 断言**编号连续无缺口**且**等于 PDF 页数**，而不只是数个数 |
+| **产物目录判据依赖 `.md`，导致目录无限嵌套** | 用 `{name}/{name}.md` 是否存在来判断「这是不是提取产物目录」。但撰写在提取之后，`.md` 尚未生成时判据失效 → `{name}.pdf` 被当成新源文件 → 写进 `{name}/{name}/` → 下次再扫又发现更深一层。**每跑一次多嵌套一层**，并重复消耗磁盘与时间 | 判据用「存在 `{name}.pdf`」+「存在 `extraction_raw.txt` 或 `asset/`」，**不要依赖 `.md`**。发现嵌套后删除同名子目录即可，源文件不受影响 |
+| **DRM/IRM 加密的文件** | 文件是 OLE2 但**没有 `PowerPoint Document` 流**，真实内容在 `EncryptedPackage` 流里（Microsoft Purview / Azure 信息保护等）。LibreOffice **不支持 IRM**：转换不报错，而是 100% CPU **空转十几分钟、零产出**，看起来像「文件大所以慢」 | 用 `is_drm_protected()` 提前识别并跳过。**不要尝试绕过加密**，需有权限的账号在 PowerPoint 中导出未加密副本 |
+| **文件扩展名与实际格式不符** | 老式二进制 `.ppt` 被改成 `.pptx`：LibreOffice 能转 PDF，但 python-pptx 打不开 zip，结构化通道直接失败 → 产出一堆 PNG 却无可读内容 | 按**魔数**判断格式（`d0cf11e0`=OLE2 / `504b0304`=OOXML / `25504446`=PDF），老式 `.ppt` 先转成真 `.pptx` 再走结构化通道（比退回 PDF 通道质量高） |
 
 ---
 
@@ -446,6 +540,18 @@ tesseract "{output_dir}/asset/slide_{i:02d}.png" \
 解析 "{pdf_file}"，该 PDF 已从 PPT 转换，跳过 LibreOffice 步骤，
 直接用 pdfplumber 做结构化提取，再用 OCR 辅助验证。
 ```
+
+### 文件夹输入（批量）
+
+```bash
+bash "{skill_dir}/batch_extract.sh" "{input_dir}"      # 提取
+bash "{skill_dir}/batch_ocr.sh"     "{input_dir}"      # OCR（可选）
+```
+
+脚本逐份串行处理，幂等可续跑；随后按 `AUTHORING_BRIEF.md` 逐份撰写 `{name}.md`。
+
+> 输出目录**沿用单文件规则**（`{文件所在目录}/{name}/`），源文件夹下会多出
+> 每个文档一个子目录。整条入库链路（`kb-ingest`）用的就是这个批量约定。
 
 ### 预期输出
 

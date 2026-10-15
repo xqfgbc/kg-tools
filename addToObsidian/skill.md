@@ -95,6 +95,18 @@ head -30 ""$VAULT_PATH""/*/*.md
 | 3. 规范化 | 下划线 `_` → 空格，`&` 保留 | `Artificial Intelligence architecture framework & principles` |
 | 4. 转标题大小写 | 每个单词首字母大写（介词/连词除外） | `AI Architecture Framework & Principles` |
 
+> **系列文档要保留系列结构**：像 `系列名 - Chapter N - 主题 V3.0` 这样的成套文档，
+> 只去掉版本后缀，`系列名 - Chapter N - 主题` 的骨架**原样保留**，
+> 不要截断到 `-` 之前的部分（那是 web-pdf-extract 的规则，会毁掉章节信息）。
+
+| 源文件名 | 生成标题 |
+|---------|---------|
+| `Software and Platform ETB - Chapter 2 - Technology Trends V3.0.pptx` | `Software and Platform ETB - Chapter 2 - Technology Trends` |
+| `Software and Platform ETB - Chapter 3 - Architecture Framework and Principles V3.0.pptx` | `Software and Platform ETB - Chapter 3 - Architecture Framework and Principles` |
+| `Software and Platform ETB - EA Strategy Stage0-v3.0.pptx` | `Software and Platform ETB - EA Strategy Stage0` |
+| `Technology Sourcing Selection Framework.pptx` | `Technology Sourcing Selection Framework` |
+| `APP Infrastructure and Infrastructure Run for SaaS _PS.pptx` | `APP Infrastructure and Infrastructure Run for SaaS` |
+
 **web-pdf-extract 命名转换规则**：
 
 | 步骤 | 操作 | 示例 |
@@ -169,6 +181,7 @@ PAGE_COUNT=$((CONTENT_H2 + CONTENT_H3 - SECTION_COUNT))
 
 ```yaml
 ---
+title: "{文档标题}"          ← 必须与文件夹名、.md 文件名三者一致
 tags:
   - {tag1}
   - {tag2}
@@ -186,12 +199,18 @@ source: "{ppt-extract: PPT文件名 | web-pdf-extract: PDF原始URL或文件名}
 
 | 字段 | ppt-extract | web-pdf-extract |
 |------|------------|-----------------|
+| `title` | ✅ 文档标题（= 文件夹名 = 文件名） | ✅ 同上 |
 | `tags` | 从总体标签 + 幻灯片标签汇总去重（20-30 个） | 从 `> **Tags**:` 行解析（10-20 个） |
 | `aliases` | 缩写、中英文替代名、版本号 | 原标题（含特殊字符的原始文件名） |
 | `created` | PPT 文档日期 | PDF 下载/创建日期 |
 | `document-type` | ETB / 案例 / 路线图 等 | 文档 / 指南 / 白皮书 等 |
 | `pages` | ✅ 幻灯片页数 | ❌ 改用 `sections`（章节数） |
 | `source` | ✅ 源 PPT 文件名 | ✅ 源 PDF 文件名或 URL |
+
+> **⚠️ `title` 不能省。** 知识图谱管道用 `metadata.get('title', rel_path)` 决定文档节点的标题
+> （`kg-pipeline/pipeline.py`）。缺了它，图谱里该节点的标题会退化成整条相对路径
+> （`Core Concepts/Core Concepts.md` 这种），问答的来源追溯里很难看。
+> 管道实际读取的 frontmatter 字段是 `title` / `tags` / `aliases` / `related`，其余字段原样保留。
 
 ### 第六步：插入 Wiki-Link 关联
 
@@ -205,13 +224,23 @@ source: "{ppt-extract: PPT文件名 | web-pdf-extract: PDF原始URL或文件名}
 | web-pdf-extract | `> **Tags**:` 行之后、`---` 分隔线之前 |
 
 ```markdown
-## 🔗 相关文档
+## 🔗 关联文档
 
 | 文档 | 关系 |
 |------|------|
 | [[文档名1]] | 关联关系描述 |
 | [[文档名2]] | 关联关系描述 |
 ```
+
+> **⚠️ 章节标题必须用 `## 🔗 关联文档`。**
+> 知识图谱管道（`kg-update`）会往同一个章节里补充它自己算出来的关联条目，
+> 它识别的标题就是这个。历史上本 skill 写的是「相关文档」、管道只认「关联文档」，
+> 结果同一个文件里出现两个重复的关联章节 —— 管道现已兼容两种标题，
+> 但新文档一律用「关联文档」。
+>
+> **分工**：本 skill 写**首版**（带人工/LLM 判断的关系描述，表格形式）；
+> 管道后续只**追加**它算出的高置信度关联（`- [[文档名]] — 相似度 0.xx`，列表形式），
+> 不会覆盖或删除表格里已有的条目。
 
 **关联判断依据**（两种输入通用）：
 - **标签重叠度**：输入文档的标签与现有 vault 文档 frontmatter `tags` 交集越多，关联越强
@@ -231,7 +260,7 @@ source: "{ppt-extract: PPT文件名 | web-pdf-extract: PDF原始URL或文件名}
   - # 标题
   - 来源/摘要/标签 区域
 
-## 🔗 相关文档     ← 插入
+## 🔗 关联文档     ← 插入
 | 文档 | 关系 |
 |------|------|
 
@@ -240,12 +269,31 @@ source: "{ppt-extract: PPT文件名 | web-pdf-extract: PDF原始URL或文件名}
   - web-pdf-extract: 各章节正文
 ```
 
+**幂等要求**：写入前先检查 `"$VAULT_PATH/${FOLDER_NAME}/${FOLDER_NAME}.md"` 是否已存在。
+
+- **不存在** → 按上述流程新建
+- **已存在** → **原地更新，不要另建目录或另起文件名**。保留已有的 `## 🔗 关联文档` 章节里
+  人工撰写的条目，只更新 frontmatter 与正文。重新跑一次同样的输入不应产生第二份文档。
+
 **实现方式**：
 
 ```bash
+TARGET_DIR="$VAULT_PATH/${FOLDER_NAME}"
+TARGET_MD="$TARGET_DIR/${FOLDER_NAME}.md"
+grep -q '^## Slide' "$SOURCE_MD"   # 输入类型检测（见「输入类型自动检测」）
+
+if [ -f "$TARGET_MD" ]; then
+  echo "⚠️  目标已存在，走原地更新：$TARGET_MD"
+  # 更新前留一份备份，便于回退
+  cp "$TARGET_MD" "$TARGET_MD.pre-addToObsidian.bak"
+else
+  mkdir -p "${TARGET_DIR}/asset"
+fi
+
 # 1. 先写入 frontmatter
-cat > "{target_md}" << 'YAML_EOF'
+cat > "$TARGET_MD" << 'YAML_EOF'
 ---
+title: ...
 tags: [...]
 aliases: [...]
 created: ...
@@ -258,13 +306,14 @@ YAML_EOF
 #    ppt-extract: 跳过第一行标题（已包含在 frontmatter 概念中）
 #    web-pdf-extract: 保留 ## 摘要 和 `> **Tags**:` 之前的头部（标题 + 来源），其余直接追加
 if [ "$INPUT_TYPE" = "ppt-extract" ]; then
-  tail -n +2 "$SOURCE_MD" >> "{target_md}"
+  tail -n +2 "$SOURCE_MD" >> "$TARGET_MD"
 elif [ "$INPUT_TYPE" = "web-pdf-extract" ]; then
   # 跳过 # 标题行和 > 来源行（已在 frontmatter 中体现），从 ## 摘要 开始
-  sed -n '/^## 摘要/,$ p' "$SOURCE_MD" >> "{target_md}"
+  sed -n '/^## 摘要/,$ p' "$SOURCE_MD" >> "$TARGET_MD"
 fi
 
-# 3. 用 Edit 工具在元信息区域后插入关联文档区块
+# 3. 用 Edit 工具在元信息区域后插入 ## 🔗 关联文档 区块
+#    原地更新时：保留该章节里已有的表格条目，不要整体替换
 ```
 
 ### 第八步：验证
@@ -283,7 +332,12 @@ elif [ "$INPUT_TYPE" = "web-pdf-extract" ]; then
 fi
 
 echo "=== 关联链接 ===" && grep "\[\[" "{target_md}"
+echo "=== 关联章节数（应为 1）===" && grep -c "^## 🔗" "{target_md}"
+echo "=== title 字段（应与目录名一致）===" && grep "^title:" "{target_md}"
 ```
+
+> 两个目录名一致性断言（`title` == 文件夹名 == 文件名）值得显式跑一次 ——
+> 它是图谱节点标题和 Obsidian 深链接正确的前提。
 
 ---
 
@@ -292,12 +346,15 @@ echo "=== 关联链接 ===" && grep "\[\[" "{target_md}"
 ### 通用标准（两种输入类型均需满足）
 
 - [ ] YAML frontmatter 格式正确，在 Obsidian 中可被识别
+- [ ] **`title` 字段存在，且与文件夹名、`.md` 文件名三者完全一致**
 - [ ] 标签与 vault 现有文档标签风格一致
 - [ ] 别名覆盖英文全称、缩写、中文简称
 - [ ] 至少关联 2 个 vault 现有文档（通过 `[[wiki-link]]`）
+- [ ] 关联章节标题为 `## 🔗 关联文档`，且全文件只有 **1 个**关联章节
 - [ ] 图片引用路径正确（`asset/...`）
 - [ ] 正文内容完整，无截断
 - [ ] `asset/` 文件夹已复制到 vault 目录下
+- [ ] 重复执行同一输入不会产生第二份文档（幂等）
 
 ### ppt-extract 特有
 
@@ -325,3 +382,7 @@ echo "=== 关联链接 ===" && grep "\[\[" "{target_md}"
 | **文件过大导致性能问题** | 66 页/168KB 在 Obsidian 中可正常处理；若章节更多可考虑拆分为多个 `.md` |
 | **输入类型检测失败** | 确保源 `.md` 来自 ppt-extract 或 web-pdf-extract；手动检查 `grep "^## Slide"` 和 `grep "^> \\*\\*Tags\\*\\*: "` |
 | **web-pdf-extract 标签格式不兼容** | 行内 `` `tag1` `tag2` `` 格式需解析为 YAML list；注意反引号内的标签可能含空格 |
+| **出现两个关联章节** | 标题必须写 `## 🔗 关联文档`（不是「相关文档」）；写入前用 `grep -c "^## 🔗"` 自查 |
+| **图谱里文档标题是一条路径** | frontmatter 缺 `title` 字段；管道在 `metadata.get('title', rel_path)` 处会退化成相对路径 |
+| **重复执行产生了第二份文档** | 写入前必须检查 `$VAULT_PATH/${FOLDER_NAME}/${FOLDER_NAME}.md` 是否已存在，存在则原地更新 |
+| **系列文档被截断成 `-` 之前的部分** | ppt-extract 命名规则保留 `系列名 - Chapter N - 主题`，只去版本后缀；不要套用 web-pdf-extract 的「提取主标题」规则 |
