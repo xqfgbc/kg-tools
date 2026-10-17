@@ -34,26 +34,34 @@ KG_PYTHON=/path/to/venv/bin/python3
 
 ## 工作流程
 
-### Step 0: 图谱新鲜度自检
+### Step 0: 知识库新鲜度自检
 
-先确认图谱覆盖了 vault 里的全部文档再检索，否则答案会凭空缺失某些文档：
+先确认知识库覆盖了 vault 里的全部文档、且不比源文件旧：
 
 ```bash
 source "{skill_dir}/.env"
 "$KG_PYTHON" - <<'PY'
-import json, os
+import os, sqlite3
 kg, vault = os.environ["KG_PROJECT_DIR"], os.environ["VAULT_PATH"]
-g = json.load(open(os.path.join(kg, "kg-pipeline-data/graph.json")))
-docs = {n["id"] for n in g["nodes"] if n["type"] == "document"}
-md = [f for r, _, fs in os.walk(vault) for f in fs
+kb = os.path.join(kg, "kg-pipeline-data/kb.sqlite")
+md = [os.path.join(r, f) for r, _, fs in os.walk(vault) for f in fs
       if f.endswith(".md") and ".obsidian" not in r and "/asset/" not in r]
-print(f"图谱文档数: {len(docs)}   vault 文档数: {len(md)}")
-if len(docs) != len(md):
-    print("⚠️  不一致 —— 图谱可能被截断，请先运行 /kg-update 再提问")
+
+if os.path.exists(kb):
+    c = sqlite3.connect(kb)
+    docs = c.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
+    slides = c.execute("SELECT COUNT(*) FROM slides").fetchone()[0]
+    print(f"知识库文档数: {docs}   vault 文档数: {len(md)}   页: {slides}")
+    if docs != len(md):
+        print("⚠️  不一致 —— 请先运行 /kg-update 重建知识库")
+    if md and os.path.getmtime(kb) < max(os.path.getmtime(p) for p in md):
+        print("⚠️  知识库比 vault 旧 —— 请先运行 /kg-update")
+else:
+    print("⚠️  kb.sqlite 不存在 —— 检索将降级到旧图路径，请运行 /kg-update")
 PY
 ```
 
-不一致时**先跑 `/kg-update`**，不要基于残缺的图谱作答。
+不一致时**先跑 `/kg-update`**，不要基于残缺的索引作答。
 
 ### Step 1: 检索
 
@@ -63,15 +71,19 @@ cd "$KG_PROJECT_DIR" && "$KG_PYTHON" kg-pipeline/retrieval.py "<用户问题>"
 ```
 
 返回的 JSON 包含：
-- `matched_entities` — 匹配到的实体及来源文档数
-- `related_concepts` — 共现关联最强的概念（按权重排序）
-- `source_passages` — 原文幻灯片摘要，含文档名、幻灯片编号、标题、摘要
-- `fulltext_matches` — 全文搜索到的补充段落
+- `matched_entities` — 命中的术语及覆盖文档数
+- `related_concepts` — **同页共现**的概念（证据可回溯到具体页）
+- `source_passages` — 命中的页：`{doc, slide, title, summary, body, entity}`
+- `fulltext_matches` — 排名之外的补充页，`{doc, text}`（片段）
 
-> **检索机制说明**：实体匹配用的是 TF-IDF（字符 2–4 gram）+ 余弦相似度，**不是语义嵌入**。
-> 它衡量字符重叠而非语义相近，所以问法与实体名用词不重叠时可能漏召回。
-> 检索结果为空或明显偏少时，换用**实体表里实际出现的词**（英文术语、缩写）重试，
-> 或先在图谱中查一下相关实体名再问。
+> **检索机制**：SQLite **FTS5 + BM25**（jieba 预分词；标题 / 标签 / 正文分列赋权），
+> 配合术语表归一化（拼写变体合并）与别名扩展（缩写 ↔ 全称）。
+> 查询与某文档标题/别名高度重合时走**两阶段路由**，直接该文档的页拉进候选。
+>
+> 这仍是**词法检索**：改过说法的提问可能漏召回。结果不理想时换用**语料里实际出现的词**
+> （英文术语、缩写、产品名）重试。
+> 可选向量：`KB_VECTORS=1` 启用本地 bge-m3（默认关闭——在可自动度量的任务上它不如 BM25，
+> 详见 `AI-KG/docs/KB_IMPROVEMENT_PLAN.md`）。
 
 ### Step 2: 组织上下文
 

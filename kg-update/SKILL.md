@@ -45,22 +45,34 @@ source "{skill_dir}/.env"
 - 退出码 0 = 无变更，流程结束
 - 退出码 1 = 有变更，继续 Step 2
 
-### Step 2: 更新图谱
+### Step 2: 重建知识库
 
 ```bash
-"$KG_PYTHON" "$KG_PROJECT_DIR/kg-pipeline/pipeline.py"
+"$KG_PYTHON" "$KG_PROJECT_DIR/kg-pipeline/build_kb.py"
 ```
 
-可选参数：`--dry-run`（只预览不改文件）、`--force`（忽略增量状态全量重建）、`-v`（详细输出）。
+- **全量重建 `kb.sqlite`**（22 篇 / 798 页约 1.7 秒）——刻意不做增量：
+  全量重建比维护增量状态更简单，也更不容易出错
+- 同时导出**精简的 `graph.json` 视图**（820 节点 / 798 边，约 330KB），
+  供 `kb-ingest/verify.py` 与 dashboard 使用
+- **不修改 vault**
 
-管道会：
-- 扫描 vault 中所有 .md 文件，对比 `index_state.json` 的 hash 判定新增/修改/删除
-- **只解析变更的文件**：未变更文件直接复用 state 里缓存的提取结果，不打开、不解析
-- 提取 frontmatter tags、inline tags（🏷️ 标签块）、wiki-links、标题层级、大纲
-- 实体归一化（别名映射）
-- 计算标签共现和文档相似度
-- **只对变更文件**回写 enriched frontmatter 与注入 [[wiki-links]]（有 `.bak` 备份）
-- 导出 `graph.json`、更新 `index_state.json`
+> ⚠️ **不要再跑 `pipeline.py` 来更新图谱**。它会把 `graph.json` 重写成旧的
+> 120MB 大图，覆盖掉这里的导出视图。旧的图/共现/回写逻辑已由 kb 层取代。
+> 如果确实需要它的 frontmatter 回写，跑完 `pipeline.py` 后**必须再跑一次
+> `build_kb.py`**，把导出视图恢复回来。
+>
+> ⚠️ 也**不要用 `pipeline.py --force`**：它会把 state 当空，全量重解析**并回写 vault**。
+
+### Step 2b（可选）: 更新向量
+
+只在启用了向量检索时需要。默认关闭，见 `AI-KG/docs/KB_IMPROVEMENT_PLAN.md`。
+
+```bash
+"$KG_PYTHON" "$KG_PROJECT_DIR/kg-pipeline/build_vectors.py"
+```
+
+只编码 `model` 标记不一致的段（增量）；852 段约 10 分钟（CPU）。
 
 ### Step 3: 同步 Dashboard
 
